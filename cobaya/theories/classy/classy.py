@@ -477,7 +477,7 @@ class classy(BoltzmannBase):
 
     def get_can_provide_params(self):
         names = ['Omega_Lambda', 'Omega_cdm', 'Omega_b', 'Omega_m', 'rs_drag', 'z_reio',
-                 'YHe', 'Omega_k', 'age', 'sigma8']
+                 'YHe', 'Omega_k', 'age', 'sigma8', 'rd_rec', 'ra_rec', 'rs_rec', 'z_rec']
         for name, mapped in self.renames.items():
             if mapped in names:
                 names.append(name)
