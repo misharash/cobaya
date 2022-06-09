@@ -10,7 +10,7 @@ import os
 import sys
 import time
 from itertools import chain
-from typing import List, Union, NamedTuple, Optional
+from typing import List, Union, Optional, Tuple
 import numpy as np
 
 from cobaya import mpi
@@ -54,11 +54,6 @@ class OutputOptions:
     output_inteveral_s = 60
 
 
-class PostTuple(NamedTuple):
-    info: InputDict
-    products: PostResultDict
-
-
 def value_or_list(lst: list):
     if len(lst) == 1:
         return lst[0]
@@ -79,15 +74,18 @@ class DummyModel:
 @mpi.sync_state
 def post(info_or_yaml_or_file: Union[InputDict, str, os.PathLike],
          sample: Union[SampleCollection, List[SampleCollection], None] = None
-         ) -> PostTuple:
+         ) -> Tuple[InputDict, PostResultDict]:
     info = load_input_dict(info_or_yaml_or_file)
-    logger_setup(info.get("debug"), info.get("debug_file"))
-    log = get_logger(__name__)
-    # MARKED FOR DEPRECATION IN v3.0
-    if info.get("modules"):
-        raise LoggedError(log, "The input field 'modules' has been deprecated."
-                               "Please use instead %r", packages_path_input)
+    # MARKED FOR DEPRECATION IN v3.2
+    if info.get("debug_file"):
+        print("*WARNING* 'debug_file' will soon be deprecated. If you want to "
+              "save the debug output to a file, use 'debug: [filename]'.")
+        # BEHAVIOUR TO BE REPLACED BY AN ERROR
+        if info.get("debug"):
+            info["debug"] = info.pop("debug_file")
     # END OF DEPRECATION BLOCK
+    logger_setup(info.get("debug"))
+    log = get_logger(__name__)
     info_post: PostDict = info.get("post") or {}
     if not info_post:
         raise LoggedError(log, "No 'post' block given. Nothing to do!")
@@ -409,7 +407,8 @@ def post(info_or_yaml_or_file: Union[InputDict, str, os.PathLike],
 
         def set_difflogmax():
             nonlocal difflogmax
-            difflog = (collection_in[OutPar.minuslogpost].to_numpy(dtype=np.float64)[:len(collection_out)]
+            difflog = (collection_in[OutPar.minuslogpost].to_numpy(
+                dtype=np.float64)[:len(collection_out)]
                        - collection_out[OutPar.minuslogpost].to_numpy(dtype=np.float64))
             difflogmax = np.max(difflog)
             if abs(difflogmax) < 1:
@@ -458,7 +457,8 @@ def post(info_or_yaml_or_file: Union[InputDict, str, os.PathLike],
             if -np.inf in logpriors_new:
                 continue
             # Add/remove likelihoods and/or (re-)calculate derived parameters
-            loglikes_add, output_derived = model_add.logps(all_params)
+            loglikes_add, output_derived = model_add._loglikes_input_params(
+                all_params, return_output_params=True)
             loglikes_add = dict(zip(chi2_names_add, loglikes_add))
             output_derived = dict(zip(model_add.output_params, output_derived))
             loglikes_new = [loglikes_add.get(name, -0.5 * point.get(name, 0))
@@ -473,8 +473,8 @@ def post(info_or_yaml_or_file: Union[InputDict, str, os.PathLike],
             all_params.update(output_derived)
 
             all_params.update(out_func_parameterization.to_derived(all_params))
-            derived = {param: all_params.get(param)
-                       for param in dummy_model_out.parameterization.derived_params()}
+            derived = {param: all_params.get(param) for param in
+                       dummy_model_out.parameterization.derived_params()}
             # We need to recompute the aggregated chi2 by hand
             for type_, likes in inv_types.items():
                 derived[get_chi2_name(type_)] = sum(
@@ -572,4 +572,4 @@ def post(info_or_yaml_or_file: Union[InputDict, str, os.PathLike],
                                           'points': sum(points_s)},
                                 "logpost_weight_offset": difflogmax,
                                 "weights": value_or_list(weights)}
-    return PostTuple(info=out_combined, products=products)
+    return out_combined, products
